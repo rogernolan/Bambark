@@ -13,7 +13,7 @@ func TestFromBambuddyMapsTitleAndMessage(t *testing.T) {
 }
 
 func TestFromBambuddyRejectsBlankFields(t *testing.T) {
-	for _, payload := range []BambuddyPayload{{Message: "body"}, {Title: "title"}, {Title: " ", Message: "body"}} {
+	for _, payload := range []BambuddyPayload{{Message: "body"}, {Title: "title"}, {Title: " ", Message: "body"}, {Title: "title", Message: "   "}} {
 		if _, err := FromBambuddy(payload); err == nil {
 			t.Errorf("FromBambuddy(%#v) error = nil", payload)
 		}

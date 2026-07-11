@@ -7,11 +7,13 @@ import (
 )
 
 func TestBearerTokenExtractsCaseInsensitiveBearerScheme(t *testing.T) {
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.Header.Set("Authorization", "Bearer abc123")
-	got, ok := BearerToken(r)
-	if !ok || got != "abc123" {
-		t.Fatalf("BearerToken() = %q, %v", got, ok)
+	for _, value := range []string{"Bearer abc123", "bEaReR abc123"} {
+		r := httptest.NewRequest(http.MethodPost, "/", nil)
+		r.Header.Set("Authorization", value)
+		got, ok := BearerToken(r)
+		if !ok || got != "abc123" {
+			t.Fatalf("BearerToken(%q) = %q, %v", value, got, ok)
+		}
 	}
 }
 
