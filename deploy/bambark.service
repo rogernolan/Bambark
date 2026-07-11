@@ -1,0 +1,14 @@
+[Unit]
+Description=Bambark webhook wrapper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bambark
+EnvironmentFile=/etc/bambark/bambark.env
+ExecStart=/usr/local/bin/bambark
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
