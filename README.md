@@ -9,13 +9,33 @@ It is designed to run on a trusted internal network and does not terminate TLS i
 go build -o bambark ./cmd/bambark
 ```
 
-## Install
+## Fresh Debian/systemd setup
 
 ```sh
-sudo install -m 0755 bambark /usr/local/bin/bambark
-sudo install -d -m 0750 /etc/bambark
-sudo install -m 0640 deploy/bambark.env.example /etc/bambark/bambark.env
+sudo groupadd --system bambark
+sudo useradd --system --no-create-home --gid bambark --shell /usr/sbin/nologin bambark
+
+sudo install -o root -g root -m 0755 bambark /usr/local/bin/bambark
+
+sudo install -d -o root -g bambark -m 0750 /etc/bambark
+cp deploy/bambark.env.example /tmp/bambark.env
+editor /tmp/bambark.env
+sudo install -o root -g bambark -m 0640 /tmp/bambark.env /etc/bambark/bambark.env
+
+sudo install -o root -g root -m 0644 deploy/bambark.service /etc/systemd/system/bambark.service
+sudo systemctl daemon-reload
 sudo systemctl enable --now bambark.service
+
+rm -f /tmp/bambark.env
+```
+
+Use placeholders in `/tmp/bambark.env` until you replace them with your real settings:
+
+```dotenv
+LISTEN_ADDR=:8080
+BARK_URL=http://127.0.0.1:8081
+BARK_DEVICE_KEY=replace-with-bark-device-key
+WEBHOOK_BEARER_TOKEN=replace-with-a-long-random-token
 ```
 
 ## Configure Bambuddy

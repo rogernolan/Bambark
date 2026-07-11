@@ -17,8 +17,12 @@ import (
 )
 
 const (
-	barkClientTimeout = 10 * time.Second
-	shutdownTimeout   = 5 * time.Second
+	barkClientTimeout       = 10 * time.Second
+	serverReadHeaderTimeout = 5 * time.Second
+	serverReadTimeout       = 10 * time.Second
+	serverWriteTimeout      = 10 * time.Second
+	serverIdleTimeout       = 60 * time.Second
+	shutdownTimeout         = 5 * time.Second
 )
 
 func main() {
@@ -79,7 +83,11 @@ func newServer(cfg config.Config, client *http.Client) (*http.Server, error) {
 	handler := httpapi.NewServer(cfg.WebhookBearerToken, barkClient, barkClientTimeout).Handler()
 
 	return &http.Server{
-		Addr:    cfg.ListenAddr,
-		Handler: handler,
+		Addr:              cfg.ListenAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: serverReadHeaderTimeout,
+		ReadTimeout:       serverReadTimeout,
+		WriteTimeout:      serverWriteTimeout,
+		IdleTimeout:       serverIdleTimeout,
 	}, nil
 }

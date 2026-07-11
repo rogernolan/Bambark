@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/rog/bambark/internal/config"
 )
@@ -26,6 +27,18 @@ func TestNewServerBuildsConfiguredHTTPServer(t *testing.T) {
 	}
 	if server.Handler == nil {
 		t.Fatal("server.Handler = nil, want non-nil handler")
+	}
+	if server.ReadHeaderTimeout != 5*time.Second {
+		t.Fatalf("server.ReadHeaderTimeout = %v, want %v", server.ReadHeaderTimeout, 5*time.Second)
+	}
+	if server.ReadTimeout != 10*time.Second {
+		t.Fatalf("server.ReadTimeout = %v, want %v", server.ReadTimeout, 10*time.Second)
+	}
+	if server.WriteTimeout != 10*time.Second {
+		t.Fatalf("server.WriteTimeout = %v, want %v", server.WriteTimeout, 10*time.Second)
+	}
+	if server.IdleTimeout != 60*time.Second {
+		t.Fatalf("server.IdleTimeout = %v, want %v", server.IdleTimeout, 60*time.Second)
 	}
 }
 
