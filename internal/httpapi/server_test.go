@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rog/bambark/internal/bark"
 	"github.com/rog/bambark/internal/notification"
 )
 
@@ -156,6 +157,36 @@ func TestHandlerRejectsMissingOrWrongContentType(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsUnauthorizedRequestsBeforeContentTypeValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		contentType string
+	}{
+		{name: "missing"},
+		{name: "wrong", contentType: "text/plain"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := &recordingSender{}
+			handler := NewServer("secret", sender, time.Second).Handler()
+			r := newBambuddyRequest(`{"title":"Print done","message":"Finished"}`)
+			r.Header.Set("Authorization", "Bearer wrong-token")
+			if tc.contentType != "" {
+				r.Header.Set("Content-Type", tc.contentType)
+			}
+			w := httptest.NewRecorder()
+
+			handler.ServeHTTP(w, r)
+
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+			}
+			if sender.calls != 0 {
+				t.Fatalf("sender calls = %d, want 0", sender.calls)
+			}
+		})
+	}
+}
+
 func TestHandlerLogsBarkFailureStatusWithoutSecrets(t *testing.T) {
 	var logs bytes.Buffer
 	sender := &recordingSender{err: statusReportingError{code: http.StatusBadRequest, text: http.StatusText(http.StatusBadRequest)}}
@@ -176,11 +207,60 @@ func TestHandlerLogsBarkFailureStatusWithoutSecrets(t *testing.T) {
 		"status=Bad Gateway",
 		"outcome=rejected",
 		"reason=bark_status_failure",
-		"bark_status=400 Bad Request",
+		"bark_status_code=400",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("log output %q does not contain %q", output, want)
 		}
+	}
+	for _, leak := range []string{
+		"secret",
+		"Printer jammed",
+		"Door open",
+	} {
+		if strings.Contains(output, leak) {
+			t.Fatalf("log output %q leaked %q", output, leak)
+		}
+	}
+}
+
+func TestHandlerLogsRealBarkFailureStatusWithoutDuplicateCodes(t *testing.T) {
+	var logs bytes.Buffer
+	barkServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer barkServer.Close()
+
+	sender, err := bark.NewClient(barkServer.URL, "device-key", barkServer.Client())
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	handler := NewServer("secret", sender, time.Second, log.New(&logs, "", 0)).Handler()
+	r := newBambuddyRequest(`{"title":"Printer jammed","message":"Door open"}`)
+	r.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		"endpoint=/webhook/bambuddy",
+		"status=Bad Gateway",
+		"outcome=rejected",
+		"reason=bark_status_failure",
+		"bark_status_code=400",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("log output %q does not contain %q", output, want)
+		}
+	}
+	if got := strings.Count(output, "400"); got != 1 {
+		t.Fatalf("log output %q contains %d occurrences of 400, want 1", output, got)
 	}
 	for _, leak := range []string{
 		"secret",

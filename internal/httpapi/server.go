@@ -77,16 +77,16 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !isJSONContentType(r.Header.Get("Content-Type")) {
-		s.logWebhookOutcome(r.URL.Path, http.StatusBadRequest, "rejected", "reason=invalid_content_type")
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-
 	token, ok := BearerToken(r)
 	if !ok || token != s.expectedToken {
 		s.logWebhookOutcome(r.URL.Path, http.StatusUnauthorized, "rejected", "reason=unauthorized")
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+
+	if !isJSONContentType(r.Header.Get("Content-Type")) {
+		s.logWebhookOutcome(r.URL.Path, http.StatusBadRequest, "rejected", "reason=invalid_content_type")
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
@@ -108,13 +108,13 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := s.sender.Send(ctx, got); err != nil {
-		if code, text, ok := statusInfo(err); ok {
+		if code, ok := statusInfo(err); ok {
 			s.logWebhookOutcome(
 				r.URL.Path,
 				http.StatusBadGateway,
 				"rejected",
 				"reason=bark_status_failure",
-				"bark_status="+fmt.Sprintf("%d %s", code, text),
+				"bark_status_code="+fmt.Sprintf("%d", code),
 			)
 		} else {
 			s.logWebhookOutcome(r.URL.Path, http.StatusBadGateway, "rejected", "reason=bark_failure", "error="+quote(err.Error()))
@@ -143,16 +143,15 @@ func (noopLogger) Printf(string, ...any) {}
 
 type barkStatusProvider interface {
 	StatusCode() int
-	StatusText() string
 }
 
-func statusInfo(err error) (int, string, bool) {
+func statusInfo(err error) (int, bool) {
 	provider, ok := err.(barkStatusProvider)
 	if !ok {
-		return 0, "", false
+		return 0, false
 	}
 
-	return provider.StatusCode(), provider.StatusText(), true
+	return provider.StatusCode(), true
 }
 
 func quote(value string) string {
