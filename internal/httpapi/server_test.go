@@ -15,9 +15,8 @@ import (
 func TestHandlerAcceptsAuthenticatedBambuddyWebhook(t *testing.T) {
 	sender := &recordingSender{}
 	handler := NewServer("secret", sender, time.Second).Handler()
-	r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(`{"title":"Print done","message":"Finished"}`))
+	r := newBambuddyRequest(`{"title":"Print done","message":"Finished"}`)
 	r.Header.Set("Authorization", "Bearer secret")
-	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, r)
@@ -33,6 +32,57 @@ func TestHandlerAcceptsAuthenticatedBambuddyWebhook(t *testing.T) {
 	}
 }
 
+func TestHandlerAcceptsJSONWithParametersAndExtraFields(t *testing.T) {
+	sender := &recordingSender{}
+	handler := NewServer("secret", sender, time.Second).Handler()
+	r := newBambuddyRequest(`{"title":"Print done","message":"Finished","event":"print_done","ignored":true}`)
+	r.Header.Set("Authorization", "Bearer secret")
+	r.Header.Set("Content-Type", "application/json; charset=utf-8")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusAccepted)
+	}
+	if sender.got != (notification.Notification{Title: "Print done", Body: "Finished"}) {
+		t.Fatalf("notification = %#v", sender.got)
+	}
+	if sender.calls != 1 {
+		t.Fatalf("sender calls = %d, want 1", sender.calls)
+	}
+}
+
+func TestHandlerRejectsMissingOrWrongContentType(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		contentType string
+	}{
+		{name: "missing"},
+		{name: "wrong", contentType: "text/plain"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := &recordingSender{}
+			handler := NewServer("secret", sender, time.Second).Handler()
+			r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(`{"title":"Print done","message":"Finished"}`))
+			r.Header.Set("Authorization", "Bearer secret")
+			if tc.contentType != "" {
+				r.Header.Set("Content-Type", tc.contentType)
+			}
+			w := httptest.NewRecorder()
+
+			handler.ServeHTTP(w, r)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+			}
+			if sender.calls != 0 {
+				t.Fatalf("sender calls = %d, want 0", sender.calls)
+			}
+		})
+	}
+}
+
 func TestHandlerRejectsMissingOrWrongBearerToken(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -44,7 +94,7 @@ func TestHandlerRejectsMissingOrWrongBearerToken(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sender := &recordingSender{}
 			handler := NewServer("secret", sender, time.Second).Handler()
-			r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(`{"title":"Print done","message":"Finished"}`))
+			r := newBambuddyRequest(`{"title":"Print done","message":"Finished"}`)
 			if tc.authorization != "" {
 				r.Header.Set("Authorization", tc.authorization)
 			}
@@ -65,7 +115,7 @@ func TestHandlerRejectsMissingOrWrongBearerToken(t *testing.T) {
 func TestHandlerRejectsMalformedJSON(t *testing.T) {
 	sender := &recordingSender{}
 	handler := NewServer("secret", sender, time.Second).Handler()
-	r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(`{"title":"Print done","message":"Finished"`))
+	r := newBambuddyRequest(`{"title":"Print done","message":"Finished"`)
 	r.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 
@@ -82,7 +132,7 @@ func TestHandlerRejectsMalformedJSON(t *testing.T) {
 func TestHandlerRejectsTrailingJSONValues(t *testing.T) {
 	sender := &recordingSender{}
 	handler := NewServer("secret", sender, time.Second).Handler()
-	r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(`{"title":"Print done","message":"Finished"}{"extra":true}`))
+	r := newBambuddyRequest(`{"title":"Print done","message":"Finished"}{"extra":true}`)
 	r.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 
@@ -106,7 +156,7 @@ func TestHandlerRejectsBlankRequiredFields(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			sender := &recordingSender{}
 			handler := NewServer("secret", sender, time.Second).Handler()
-			r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(body))
+			r := newBambuddyRequest(body)
 			r.Header.Set("Authorization", "Bearer secret")
 			w := httptest.NewRecorder()
 
@@ -125,7 +175,7 @@ func TestHandlerRejectsBlankRequiredFields(t *testing.T) {
 func TestHandlerRejectsOverlyLargeRequestBody(t *testing.T) {
 	sender := &recordingSender{}
 	handler := NewServer("secret", sender, time.Second).Handler()
-	r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(`{"title":"`+strings.Repeat("A", 1<<20)+`","message":"Finished"}`))
+	r := newBambuddyRequest(`{"title":"` + strings.Repeat("A", 1<<20) + `","message":"Finished"}`)
 	r.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 
@@ -142,7 +192,7 @@ func TestHandlerRejectsOverlyLargeRequestBody(t *testing.T) {
 func TestHandlerReturnsBadGatewayWhenSenderFails(t *testing.T) {
 	sender := &recordingSender{err: errors.New("boom")}
 	handler := NewServer("secret", sender, time.Second).Handler()
-	r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(`{"title":"Print done","message":"Finished"}`))
+	r := newBambuddyRequest(`{"title":"Print done","message":"Finished"}`)
 	r.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 
@@ -160,7 +210,7 @@ func TestHandlerUsesTimeoutContextForSender(t *testing.T) {
 	sender := &recordingSender{}
 	timeout := 250 * time.Millisecond
 	handler := NewServer("secret", sender, timeout).Handler()
-	r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(`{"title":"Print done","message":"Finished"}`))
+	r := newBambuddyRequest(`{"title":"Print done","message":"Finished"}`)
 	r.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 
@@ -240,4 +290,10 @@ func (s *recordingSender) Send(ctx context.Context, got notification.Notificatio
 	s.got = got
 	s.deadline, s.hadDeadline = ctx.Deadline()
 	return s.err
+}
+
+func newBambuddyRequest(body string) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, "/webhook/bambuddy", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	return r
 }

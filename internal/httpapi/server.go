@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rog/bambark/internal/notification"
@@ -61,6 +63,11 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !isJSONContentType(r.Header.Get("Content-Type")) {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
 	token, ok := BearerToken(r)
 	if !ok || token != s.expectedToken {
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
@@ -88,6 +95,14 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func isJSONContentType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(mediaType, "application/json")
 }
 
 func decodeBambuddyPayload(w http.ResponseWriter, r *http.Request) (notification.BambuddyPayload, bool) {
