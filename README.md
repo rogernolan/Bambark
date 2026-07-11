@@ -44,3 +44,11 @@ curl http://127.0.0.1:8080/healthz
 ```
 
 If the service is running, the health check returns `ok`.
+
+## Inspect service logs
+
+```sh
+sudo journalctl -u bambark.service -f
+```
+
+Use this to follow the systemd service logs while testing or debugging.
