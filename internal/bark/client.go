@@ -24,6 +24,23 @@ type barkRequest struct {
 	Title     string `json:"title"`
 }
 
+type ResponseError struct {
+	Code   int
+	Status string
+}
+
+func (e *ResponseError) Error() string {
+	return fmt.Sprintf("bark request failed: %s", e.Status)
+}
+
+func (e *ResponseError) StatusCode() int {
+	return e.Code
+}
+
+func (e *ResponseError) StatusText() string {
+	return e.Status
+}
+
 func NewClient(baseURL, deviceKey string, httpClient *http.Client) (*Client, error) {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil {
@@ -74,7 +91,7 @@ func (c *Client) Send(ctx context.Context, notification notification.Notificatio
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode > 299 {
-		return fmt.Errorf("bark request failed: %s", resp.Status)
+		return &ResponseError{Code: resp.StatusCode, Status: resp.Status}
 	}
 
 	return nil

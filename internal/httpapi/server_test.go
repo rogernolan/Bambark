@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,6 +34,41 @@ func TestHandlerAcceptsAuthenticatedBambuddyWebhook(t *testing.T) {
 	}
 }
 
+func TestHandlerLogsAcceptedWebhookWithoutSecrets(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &recordingSender{}
+	handler := NewServer("super-secret-token", sender, time.Second, log.New(&logs, "", 0)).Handler()
+	r := newBambuddyRequest(`{"title":"Printer jammed","message":"Door open"}`)
+	r.Header.Set("Authorization", "Bearer super-secret-token")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusAccepted)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		"endpoint=/webhook/bambuddy",
+		"status=Accepted",
+		"outcome=accepted",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("log output %q does not contain %q", output, want)
+		}
+	}
+	for _, leak := range []string{
+		"super-secret-token",
+		"Printer jammed",
+		"Door open",
+	} {
+		if strings.Contains(output, leak) {
+			t.Fatalf("log output %q leaked %q", output, leak)
+		}
+	}
+}
+
 func TestHandlerAcceptsJSONWithParametersAndExtraFields(t *testing.T) {
 	sender := &recordingSender{}
 	handler := NewServer("secret", sender, time.Second).Handler()
@@ -50,6 +87,42 @@ func TestHandlerAcceptsJSONWithParametersAndExtraFields(t *testing.T) {
 	}
 	if sender.calls != 1 {
 		t.Fatalf("sender calls = %d, want 1", sender.calls)
+	}
+}
+
+func TestHandlerLogsRejectedWebhookWithoutSecrets(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &recordingSender{}
+	handler := NewServer("secret", sender, time.Second, log.New(&logs, "", 0)).Handler()
+	r := newBambuddyRequest(`{"title":"Printer jammed","message":"Door open"}`)
+	r.Header.Set("Authorization", "Bearer wrong-token")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		"endpoint=/webhook/bambuddy",
+		"status=Unauthorized",
+		"outcome=rejected",
+		"reason=unauthorized",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("log output %q does not contain %q", output, want)
+		}
+	}
+	for _, leak := range []string{
+		"wrong-token",
+		"Printer jammed",
+		"Door open",
+	} {
+		if strings.Contains(output, leak) {
+			t.Fatalf("log output %q leaked %q", output, leak)
+		}
 	}
 }
 
@@ -80,6 +153,43 @@ func TestHandlerRejectsMissingOrWrongContentType(t *testing.T) {
 				t.Fatalf("sender calls = %d, want 0", sender.calls)
 			}
 		})
+	}
+}
+
+func TestHandlerLogsBarkFailureStatusWithoutSecrets(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &recordingSender{err: statusReportingError{code: http.StatusBadRequest, text: http.StatusText(http.StatusBadRequest)}}
+	handler := NewServer("secret", sender, time.Second, log.New(&logs, "", 0)).Handler()
+	r := newBambuddyRequest(`{"title":"Printer jammed","message":"Door open"}`)
+	r.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		"endpoint=/webhook/bambuddy",
+		"status=Bad Gateway",
+		"outcome=rejected",
+		"reason=bark_status_failure",
+		"bark_status=400 Bad Request",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("log output %q does not contain %q", output, want)
+		}
+	}
+	for _, leak := range []string{
+		"secret",
+		"Printer jammed",
+		"Door open",
+	} {
+		if strings.Contains(output, leak) {
+			t.Fatalf("log output %q leaked %q", output, leak)
+		}
 	}
 }
 
@@ -283,6 +393,23 @@ type recordingSender struct {
 	calls       int
 	hadDeadline bool
 	deadline    time.Time
+}
+
+type statusReportingError struct {
+	code int
+	text string
+}
+
+func (e statusReportingError) Error() string {
+	return "bark request failed"
+}
+
+func (e statusReportingError) StatusCode() int {
+	return e.code
+}
+
+func (e statusReportingError) StatusText() string {
+	return e.text
 }
 
 func (s *recordingSender) Send(ctx context.Context, got notification.Notification) error {

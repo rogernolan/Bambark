@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -18,17 +19,28 @@ type Sender interface {
 	Send(ctx context.Context, notification notification.Notification) error
 }
 
+type Logger interface {
+	Printf(format string, v ...any)
+}
+
 type Server struct {
 	expectedToken  string
 	sender         Sender
 	requestTimeout time.Duration
+	logger         Logger
 }
 
-func NewServer(expectedToken string, sender Sender, requestTimeout time.Duration) *Server {
+func NewServer(expectedToken string, sender Sender, requestTimeout time.Duration, logger ...Logger) *Server {
+	var resolved Logger = noopLogger{}
+	if len(logger) > 0 && logger[0] != nil {
+		resolved = logger[0]
+	}
+
 	return &Server{
 		expectedToken:  expectedToken,
 		sender:         sender,
 		requestTimeout: requestTimeout,
+		logger:         resolved,
 	}
 }
 
@@ -43,6 +55,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/webhook/bambuddy":
 		s.handleBambuddyWebhook(w, r)
 	default:
+		s.logWebhookOutcome(r.URL.Path, http.StatusNotFound, "rejected", "reason=not_found")
 		http.NotFound(w, r)
 	}
 }
@@ -59,29 +72,34 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		s.logWebhookOutcome(r.URL.Path, http.StatusMethodNotAllowed, "rejected", "reason=method_not_allowed")
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
 
 	if !isJSONContentType(r.Header.Get("Content-Type")) {
+		s.logWebhookOutcome(r.URL.Path, http.StatusBadRequest, "rejected", "reason=invalid_content_type")
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	token, ok := BearerToken(r)
 	if !ok || token != s.expectedToken {
+		s.logWebhookOutcome(r.URL.Path, http.StatusUnauthorized, "rejected", "reason=unauthorized")
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 
 	payload, ok := decodeBambuddyPayload(w, r)
 	if !ok {
+		s.logWebhookOutcome(r.URL.Path, http.StatusBadRequest, "rejected", "reason=invalid_json")
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	got, err := notification.FromBambuddy(payload)
 	if err != nil {
+		s.logWebhookOutcome(r.URL.Path, http.StatusBadRequest, "rejected", "reason=invalid_payload")
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
@@ -90,11 +108,55 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := s.sender.Send(ctx, got); err != nil {
+		if code, text, ok := statusInfo(err); ok {
+			s.logWebhookOutcome(
+				r.URL.Path,
+				http.StatusBadGateway,
+				"rejected",
+				"reason=bark_status_failure",
+				"bark_status="+fmt.Sprintf("%d %s", code, text),
+			)
+		} else {
+			s.logWebhookOutcome(r.URL.Path, http.StatusBadGateway, "rejected", "reason=bark_failure", "error="+quote(err.Error()))
+		}
 		http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
 		return
 	}
 
+	s.logWebhookOutcome(r.URL.Path, http.StatusAccepted, "accepted")
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *Server) logWebhookOutcome(endpoint string, status int, outcome string, details ...string) {
+	fields := []string{
+		"endpoint=" + endpoint,
+		"status=" + http.StatusText(status),
+		"outcome=" + outcome,
+	}
+	fields = append(fields, details...)
+	s.logger.Printf("webhook %s", strings.Join(fields, " "))
+}
+
+type noopLogger struct{}
+
+func (noopLogger) Printf(string, ...any) {}
+
+type barkStatusProvider interface {
+	StatusCode() int
+	StatusText() string
+}
+
+func statusInfo(err error) (int, string, bool) {
+	provider, ok := err.(barkStatusProvider)
+	if !ok {
+		return 0, "", false
+	}
+
+	return provider.StatusCode(), provider.StatusText(), true
+}
+
+func quote(value string) string {
+	return fmt.Sprintf("%q", value)
 }
 
 func isJSONContentType(contentType string) bool {

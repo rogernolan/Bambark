@@ -80,7 +80,7 @@ func newServer(cfg config.Config, client *http.Client) (*http.Server, error) {
 		return nil, err
 	}
 
-	handler := httpapi.NewServer(cfg.WebhookBearerToken, barkClient, barkClientTimeout).Handler()
+	handler := httpapi.NewServer(cfg.WebhookBearerToken, barkClient, barkClientTimeout, log.Default()).Handler()
 
 	return &http.Server{
 		Addr:              cfg.ListenAddr,
