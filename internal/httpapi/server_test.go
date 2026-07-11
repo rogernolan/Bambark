@@ -100,6 +100,8 @@ func TestHandlerRejectsBlankRequiredFields(t *testing.T) {
 	for _, body := range []string{
 		`{"title":"","message":"Finished"}`,
 		`{"title":"Print done","message":"   "}`,
+		`{"message":"Finished"}`,
+		`{"title":"Print done"}`,
 	} {
 		t.Run(body, func(t *testing.T) {
 			sender := &recordingSender{}
@@ -203,6 +205,22 @@ func TestHealthzReturnsOKWithoutCallingSender(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if sender.calls != 0 {
+		t.Fatalf("sender calls = %d, want 0", sender.calls)
+	}
+}
+
+func TestHealthzRejectsUnsupportedMethod(t *testing.T) {
+	sender := &recordingSender{}
+	handler := NewServer("secret", sender, time.Second).Handler()
+	r := httptest.NewRequest(http.MethodPost, "/healthz", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
 	}
 	if sender.calls != 0 {
 		t.Fatalf("sender calls = %d, want 0", sender.calls)
