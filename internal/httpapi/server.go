@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -90,7 +91,7 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload, ok := decodeBambuddyPayload(w, r)
+	payload, received, ok := decodeBambuddyPayload(w, r)
 	if !ok {
 		s.logWebhookOutcome(r.URL.Path, http.StatusBadRequest, "rejected", "reason=invalid_json")
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -99,7 +100,7 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 
 	got, err := notification.FromBambuddy(payload)
 	if err != nil {
-		s.logWebhookOutcome(r.URL.Path, http.StatusBadRequest, "rejected", "reason=invalid_payload")
+		s.logWebhookOutcome(r.URL.Path, http.StatusBadRequest, "rejected", "reason=invalid_payload", "received="+quote(received))
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
@@ -166,20 +167,25 @@ func isJSONContentType(contentType string) bool {
 	return strings.EqualFold(mediaType, "application/json")
 }
 
-func decodeBambuddyPayload(w http.ResponseWriter, r *http.Request) (notification.BambuddyPayload, bool) {
+func decodeBambuddyPayload(w http.ResponseWriter, r *http.Request) (notification.BambuddyPayload, string, bool) {
 	body := http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes)
 	defer body.Close()
 
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		return notification.BambuddyPayload{}, "", false
+	}
+
 	var payload notification.BambuddyPayload
-	decoder := json.NewDecoder(body)
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	if err := decoder.Decode(&payload); err != nil {
-		return notification.BambuddyPayload{}, false
+		return notification.BambuddyPayload{}, "", false
 	}
 
 	var extra struct{}
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return notification.BambuddyPayload{}, false
+		return notification.BambuddyPayload{}, "", false
 	}
 
-	return payload, true
+	return payload, string(raw), true
 }

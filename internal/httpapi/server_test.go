@@ -362,6 +362,30 @@ func TestHandlerRejectsBlankRequiredFields(t *testing.T) {
 	}
 }
 
+func TestHandlerLogsReceivedJSONForInvalidPayload(t *testing.T) {
+	var logs bytes.Buffer
+	sender := &recordingSender{}
+	handler := NewServer("secret", sender, time.Second, log.New(&logs, "", 0)).Handler()
+	r := newBambuddyRequest(`{"text":"*Print done*\nFinished","event":"print_complete"}`)
+	r.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	output := logs.String()
+	for _, want := range []string{
+		"reason=invalid_payload",
+		`received="{\"text\":\"*Print done*\\nFinished\",\"event\":\"print_complete\"}"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("log output %q does not contain %q", output, want)
+		}
+	}
+}
+
 func TestHandlerRejectsOverlyLargeRequestBody(t *testing.T) {
 	sender := &recordingSender{}
 	handler := NewServer("secret", sender, time.Second).Handler()
