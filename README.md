@@ -80,3 +80,30 @@ sudo journalctl -u bambark.service -f
 ```
 
 Use this to follow the systemd service logs while testing or debugging.
+
+## Rootless redeploy
+
+For a user-level systemd deployment, copy and edit the environment file once:
+
+```sh
+mkdir -p ~/.config/bambark
+install -m 0600 deploy/bambark.env.example ~/.config/bambark/bambark.env
+$EDITOR ~/.config/bambark/bambark.env
+```
+
+If the service must run when you are not logged in, an administrator must enable
+lingering once:
+
+```sh
+sudo loginctl enable-linger "$USER"
+```
+
+Then redeploy from the repository with:
+
+```sh
+./scripts/deploy.sh
+```
+
+The script refuses to run as root. It builds to `~/.local/bin/bambark`, installs
+the user service under `~/.config/systemd/user/`, and reloads, enables, and
+restarts `bambark.service` through `systemctl --user`.
