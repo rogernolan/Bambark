@@ -72,7 +72,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		s.logWebhookOutcome(r.URL.Path, http.StatusMethodNotAllowed, "rejected", "reason=method_not_allowed")
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
@@ -82,6 +82,21 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 	if !ok || token != s.expectedToken {
 		s.logWebhookOutcome(r.URL.Path, http.StatusUnauthorized, "rejected", "reason=unauthorized")
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		payload := notification.BambuddyPayload{
+			Title:   firstQueryValue(r, "title", "subject"),
+			Message: firstQueryValue(r, "message", "body", "text"),
+		}
+		got, err := notification.FromBambuddy(payload)
+		if err != nil {
+			s.logWebhookOutcome(r.URL.Path, http.StatusBadRequest, "rejected", "reason=invalid_payload", "received="+quote(r.URL.RawQuery))
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		s.deliverNotification(w, r, got)
 		return
 	}
 
@@ -105,6 +120,10 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.deliverNotification(w, r, got)
+}
+
+func (s *Server) deliverNotification(w http.ResponseWriter, r *http.Request, got notification.Notification) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.requestTimeout)
 	defer cancel()
 
@@ -126,6 +145,16 @@ func (s *Server) handleBambuddyWebhook(w http.ResponseWriter, r *http.Request) {
 
 	s.logWebhookOutcome(r.URL.Path, http.StatusAccepted, "accepted")
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func firstQueryValue(r *http.Request, keys ...string) string {
+	query := r.URL.Query()
+	for _, key := range keys {
+		if value := query.Get(key); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (s *Server) logWebhookOutcome(endpoint string, status int, outcome string, details ...string) {

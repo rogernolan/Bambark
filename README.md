@@ -52,6 +52,17 @@ curl -X POST http://<lxc-address>:8080/webhook/bambuddy \
   -d '{"title":"Print finished","message":"Tray 1 is ready"}'
 ```
 
+The preferred method is `POST`. For compatibility with webhook clients that only
+support `GET`, Bambark also accepts `GET` requests with `title` and `message`
+query parameters:
+
+```sh
+curl -G http://<lxc-address>:8080/webhook/bambuddy \
+  -H 'Authorization: Bearer <webhook-bearer-token>' \
+  --data-urlencode 'title=Print finished' \
+  --data-urlencode 'message=Tray 1 is ready'
+```
+
 The wrapper assumes the request comes from the trusted internal network and does not provide TLS termination.
 
 ## Check the service

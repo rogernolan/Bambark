@@ -35,6 +35,23 @@ func TestHandlerAcceptsAuthenticatedBambuddyWebhook(t *testing.T) {
 	}
 }
 
+func TestHandlerAcceptsAuthenticatedBambuddyGetWebhook(t *testing.T) {
+	sender := &recordingSender{}
+	handler := NewServer("secret", sender, time.Second).Handler()
+	r := httptest.NewRequest(http.MethodGet, "/webhook/bambuddy?title=Print+done&message=Finished", nil)
+	r.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusAccepted)
+	}
+	if sender.got != (notification.Notification{Title: "Print done", Body: "Finished"}) {
+		t.Fatalf("notification = %#v", sender.got)
+	}
+}
+
 func TestHandlerLogsAcceptedWebhookWithoutSecrets(t *testing.T) {
 	var logs bytes.Buffer
 	sender := &recordingSender{}
@@ -446,7 +463,7 @@ func TestHandlerUsesTimeoutContextForSender(t *testing.T) {
 func TestHandlerRejectsUnsupportedMethod(t *testing.T) {
 	sender := &recordingSender{}
 	handler := NewServer("secret", sender, time.Second).Handler()
-	r := httptest.NewRequest(http.MethodGet, "/webhook/bambuddy", nil)
+	r := httptest.NewRequest(http.MethodPut, "/webhook/bambuddy", nil)
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, r)
