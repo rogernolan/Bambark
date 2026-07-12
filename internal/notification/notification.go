@@ -1,0 +1,30 @@
+package notification
+
+import (
+	"fmt"
+	"strings"
+)
+
+type BambuddyPayload struct {
+	Title   string `json:"title"`
+	Message string `json:"message"`
+}
+
+type Notification struct {
+	Title string
+	Body  string
+}
+
+func FromBambuddy(payload BambuddyPayload) (Notification, error) {
+	title := strings.TrimSpace(payload.Title)
+	if title == "" {
+		return Notification{}, fmt.Errorf("missing title")
+	}
+
+	body := strings.TrimSpace(payload.Message)
+	if body == "" {
+		return Notification{}, fmt.Errorf("missing message")
+	}
+
+	return Notification{Title: title, Body: body}, nil
+}
