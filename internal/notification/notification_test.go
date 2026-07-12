@@ -12,6 +12,19 @@ func TestFromBambuddyMapsTitleAndMessage(t *testing.T) {
 	}
 }
 
+func TestFromBambuddyAcceptsBambuddyTestFields(t *testing.T) {
+	got, err := FromBambuddy(BambuddyPayload{
+		Test: "Bambuddy Test",
+		Push: "This is a test notification.",
+	})
+	if err != nil {
+		t.Fatalf("FromBambuddy() error = %v", err)
+	}
+	if got != (Notification{Title: "Bambuddy Test", Body: "This is a test notification."}) {
+		t.Fatalf("notification = %#v", got)
+	}
+}
+
 func TestFromBambuddyRejectsBlankFields(t *testing.T) {
 	for _, payload := range []BambuddyPayload{{Message: "body"}, {Title: "title"}, {Title: " ", Message: "body"}, {Title: "title", Message: "   "}} {
 		if _, err := FromBambuddy(payload); err == nil {
