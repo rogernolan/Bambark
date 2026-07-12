@@ -1,0 +1,13 @@
+[Unit]
+Description=Bambark Bambuddy-to-Bark webhook wrapper
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/bambark
+EnvironmentFile=%h/.config/bambark/bambark.env
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
